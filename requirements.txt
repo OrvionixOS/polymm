@@ -1,0 +1,26 @@
+# Core
+aiohttp>=3.9.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Polymarket
+py-clob-client>=0.1.0
+web3>=6.0.0
+
+# Database
+supabase>=2.0.0
+
+# Redis cache (Upstash)
+upstash-redis>=1.0.0
+
+# Web scraping (only needed for local scrapers)
+playwright>=1.40.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+
+# Type checking
+mypy>=1.7.0
+types-requests>=2.31.0
+streamlit>=1.30.0

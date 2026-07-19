@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Test / type caches
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment / secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Runtime artefacts the bot writes
+*.log
+historical_pnl.json
+
+# OS
+.DS_Store
