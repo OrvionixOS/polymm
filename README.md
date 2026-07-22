@@ -1,5 +1,7 @@
 # polymm
 
+*A Polymarket sports market-making and arbitrage bot in Python - de-vig sportsbook odds, quote just above the best bid, hedge to lock the arb.*
+
 **The retired Python bot behind a public Polymarket wallet.** It market-made on Polymarket's sports markets (esports and traditional) for a few months in early 2026 and finished up about **$5k** net, every trade on-chain at [@b00k13](https://polymarket.com/@b00k13). This repo is the actual code, plus the analytics I built to work out why the "guaranteed" strategy still bled money on the parts that were meant to be safe.
 
 Most "I built a Polymarket bot" repos are a README and a dream. This one traded real money and leaves a public wallet you can reconcile it against. At some point it also mostly stopped being profitable, and the write-ups at the bottom are honest about why.
@@ -64,13 +66,12 @@ Heads up: this needs your own infrastructure and it will not trade out of the bo
 
 ## The analytics
 
-I built a second project just to debug the first. These five scripts run against **any public Polymarket wallet** - no private data, just point them at a funder address:
+I built a second project just to debug the first. These four scripts run against **any public Polymarket wallet** - no private data, just point them at a funder address:
 
 | Script | What it tells you |
 |---|---|
-| `capital_analysis.py` | Overall portfolio P&L |
+| `capital_analysis.py` | Overall portfolio P&L, split into the arb and the directional residual |
 | `realized_pnl_by_month.py` | Realised P&L, month by month |
-| `polymarket_attribution.py` | Splits P&L into the arb and the directional residual |
 | `position_breakdown.py` | Open positions, normalised per market |
 | `underdog_analysis.py` | Favourite vs underdog win-rate and ROI |
 
