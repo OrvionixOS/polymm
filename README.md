@@ -95,6 +95,10 @@ The full story, with the real numbers, is on the blog:
 - [Adverse selection eating away my Polymarket bot arbitrage profits.](https://kacho.io/why-my-polymarket-arbitrage-bot-lost-money) - the autopsy: why a book of +EV bets lost money.
 - [I recorded Polymarket's 5-minute crypto markets for two months. Here's the dataset.](https://kacho.io/polymarket-5min-crypto-dataset) - a free dataset from a related experiment.
 
+## Listed on
+
+- [Polymart](https://polymart.app) - a directory of Polymarket bots and tools.
+
 ## Licence
 
 MIT - do what you like with it. If you build something interesting on top, I'd genuinely like to see it. The wallet's public if you want to pick any of the numbers apart.
