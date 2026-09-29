@@ -480,3 +480,139 @@ class TestFairValues:
         records = svc._parse_event(event, "basketball_ncaab", "ncaab")
         r = records[0]
         assert r.fair_prob1 > r.fair_prob2
+
+
+# ── Non-derivable probabilities must not be emitted ────────────────────────
+#
+# A single bad bookmaker price used to produce two different bad outcomes,
+# both of which reached the trading path:
+#
+#   3-way: the equal-split fallback wrote 33.33/33.33/33.34, which the reader
+#          accepts because it is > 0 — a fabricated probability priced against.
+#   2-way: proportional_probabilities returns (0.0, 0.0) for odds <= 1, so the
+#          row was written with zeros. The reader drops it, but the upsert had
+#          already overwritten the previous good row for that unique key.
+#
+# Both are now refused at the source.
+
+from src.services.odds_api_service import _fair_probabilities
+
+
+@pytest.fixture
+def _svc(monkeypatch):
+    monkeypatch.setenv("THE_ODDS_API_KEY", "dummy-key-for-parse-only")
+    return OddsApiService()
+
+
+_H2H_ARGS = dict(
+    match_id="football:arsenal:vs:manchestercity",
+    team1="Man City", team2="Arsenal",
+    sport_key="soccer_epl", game="football",
+    event_id="e1", commence_time="2026-03-05T15:00:00Z",
+)
+
+
+def test_three_way_with_zero_price_is_skipped_not_equal_split(_svc):
+    record = _svc._build_h2h_record(
+        outcomes={"Man City": [0.0], "Arsenal": [3.60], "Draw": [3.40]},
+        home="Man City", away="Arsenal", **_H2H_ARGS,
+    )
+    assert record is None
+
+
+def test_three_way_with_unit_price_is_skipped(_svc):
+    record = _svc._build_h2h_record(
+        outcomes={"Man City": [1.0], "Arsenal": [3.60], "Draw": [3.40]},
+        home="Man City", away="Arsenal", **_H2H_ARGS,
+    )
+    assert record is None
+
+
+def test_two_way_h2h_with_unit_price_is_skipped_not_zeroed(_svc):
+    record = _svc._build_h2h_record(
+        outcomes={"Boston Celtics": [1.0], "Miami Heat": [2.10]},
+        home="Boston Celtics", away="Miami Heat",
+        match_id="basketball:bostonceltics:vs:miamiheat",
+        team1="Boston Celtics", team2="Miami Heat",
+        sport_key="basketball_nba", game="basketball",
+        event_id="e2", commence_time="2026-03-05T19:00:00Z",
+    )
+    assert record is None
+
+
+def test_totals_with_unit_price_is_skipped(_svc):
+    record = _svc._build_totals_record(
+        line=2.5, outcomes={"Over": [1.0], "Under": [2.10]},
+        match_id=_H2H_ARGS["match_id"], team1="Man City", team2="Arsenal",
+        sport_key="soccer_epl", game="football",
+        event_id="e1", commence_time="2026-03-05T15:00:00Z",
+    )
+    assert record is None
+
+
+def test_spreads_with_zero_price_is_skipped(_svc):
+    record = _svc._build_spread_record(
+        line=1.5, outcomes={"Man City": [0.0], "Arsenal": [2.10]},
+        match_id=_H2H_ARGS["match_id"], team1="Man City", team2="Arsenal",
+        home="Man City", away="Arsenal",
+        sport_key="soccer_epl", game="football",
+        event_id="e1", commence_time="2026-03-05T15:00:00Z",
+    )
+    assert record is None
+
+
+def test_btts_with_unit_price_is_skipped(_svc):
+    record = _svc._build_btts_record(
+        outcomes={"Yes": [1.0], "No": [2.10]},
+        match_id=_H2H_ARGS["match_id"], team1="Man City", team2="Arsenal",
+        sport_key="soccer_epl", game="football",
+        event_id="e1", commence_time="2026-03-05T15:00:00Z",
+    )
+    assert record is None
+
+
+def test_good_three_way_odds_still_produce_the_same_probabilities(_svc):
+    """The fix must not move any value on the normal path."""
+    record = _svc._build_h2h_record(
+        outcomes={"Man City": [2.10], "Arsenal": [3.60], "Draw": [3.40]},
+        home="Man City", away="Arsenal", **_H2H_ARGS,
+    )
+    assert record is not None
+    assert record.fair_prob1 == 45.43
+    assert record.fair_prob_draw == 28.06
+    assert record.fair_prob2 == 26.5
+
+
+def test_good_two_way_odds_still_produce_the_same_probabilities(_svc):
+    record = _svc._build_totals_record(
+        line=2.5, outcomes={"Over": [1.80], "Under": [2.10]},
+        match_id=_H2H_ARGS["match_id"], team1="Man City", team2="Arsenal",
+        sport_key="soccer_epl", game="football",
+        event_id="e1", commence_time="2026-03-05T15:00:00Z",
+    )
+    assert record is not None
+    assert record.fair_prob1 == 53.85
+    assert record.fair_prob2 == 46.15
+
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, 0.5, -2.0, float("inf"), float("nan")])
+def test_fair_probabilities_refuses_implausible_odds(bad):
+    assert _fair_probabilities(bad, 2.10) is None
+    assert _fair_probabilities(2.10, bad) is None
+    assert _fair_probabilities(2.10, 3.60, bad) is None
+
+
+@pytest.mark.parametrize("bad", [None, "2.10", True])
+def test_fair_probabilities_refuses_non_numeric_odds(bad):
+    assert _fair_probabilities(bad, 2.10) is None
+
+
+def test_fair_probabilities_two_way_sums_to_100():
+    p1, p2, draw = _fair_probabilities(1.80, 2.10)
+    assert draw is None
+    assert p1 + p2 == pytest.approx(100.0, abs=0.01)
+
+
+def test_fair_probabilities_three_way_sums_to_100():
+    p1, p2, draw = _fair_probabilities(2.10, 3.60, 3.40)
+    assert p1 + p2 + draw == pytest.approx(100.0, abs=0.01)

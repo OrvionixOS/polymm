@@ -14,6 +14,7 @@ Usage:
     proxychains4 -q python -m src.services.odds_api_service --once
 """
 import asyncio
+import math
 import os
 import statistics
 import logging
@@ -119,6 +120,46 @@ for key in SPORT_CONFIGS:
 
 # Direct mappings for scrapers that use non-standard sport keys
 SPORT_KEY_TO_GAME["nba"] = "basketball"  # NBA also maps to "basketball" (matches sport_from_slug)
+
+
+def _fair_probabilities(
+    odds1: float,
+    odds2: float,
+    odds_draw: Optional[float] = None,
+) -> Optional[Tuple[float, float, Optional[float]]]:
+    """Fair probabilities as percentages, or None when they cannot be derived.
+
+    Returns (prob1, prob2, prob_draw) with prob_draw None for two-way markets.
+
+    None rather than a placeholder is the whole point. Nothing downstream
+    re-derives probabilities from odds1/odds2 — `odds_service` reads
+    fair_prob* as written — so a substituted value is consumed as an
+    observation and priced against. A record we cannot price is strictly
+    better absent: the caller skips it, and the previous good row for that
+    unique key survives instead of being overwritten.
+
+    Decimal odds <= 1 are rejected here rather than passed to
+    `proportional_probabilities`, which returns (0.0, 0.0) for them — zeros
+    that read downstream as "no fair value" only after the row has already
+    replaced a usable one.
+    """
+    prices = [odds1, odds2] + ([odds_draw] if odds_draw is not None else [])
+    for price in prices:
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
+            return None
+        if not math.isfinite(price) or price <= 1:
+            return None
+
+    if odds_draw is not None:
+        total = 1 / odds1 + 1 / odds_draw + 1 / odds2
+        return (
+            round((1 / odds1) / total * 100, 2),
+            round((1 / odds2) / total * 100, 2),
+            round((1 / odds_draw) / total * 100, 2),
+        )
+
+    fp1, fp2 = proportional_probabilities(odds1, odds2)
+    return round(fp1 * 100, 2), round(fp2 * 100, 2), None
 
 
 @dataclass
@@ -523,16 +564,14 @@ class OddsApiService:
         if draw_odds_list:
             # 3-way: football, rugby, hockey
             odds_draw = statistics.median(draw_odds_list)
-            try:
-                total = 1/odds1 + 1/odds_draw + 1/odds2
-                fair_prob1 = round((1/odds1) / total * 100, 2)
-                fair_prob_draw = round((1/odds_draw) / total * 100, 2)
-                fair_prob2 = round((1/odds2) / total * 100, 2)
-            except Exception:
-                # Fallback: equal split
-                fair_prob1 = 33.33
-                fair_prob_draw = 33.33
-                fair_prob2 = 33.34
+            probs = _fair_probabilities(odds1, odds2, odds_draw)
+            if probs is None:
+                logger.debug(
+                    "Skipping 3-way h2h for %s: odds %s/%s/%s do not support a "
+                    "fair value", match_id, odds1, odds_draw, odds2,
+                )
+                return None
+            fair_prob1, fair_prob2, fair_prob_draw = probs
 
             return OddsRecord(
                 match_id=match_id, source="the-odds-api", sport=sport_key,
@@ -549,14 +588,14 @@ class OddsApiService:
             )
         else:
             # 2-way: basketball, MMA, tennis, cricket
-            try:
-                fp1, fp2 = proportional_probabilities(odds1, odds2)
-                fair_prob1 = round(fp1 * 100, 2)
-                fair_prob2 = round(fp2 * 100, 2)
-            except Exception:
-                total = 1/odds1 + 1/odds2
-                fair_prob1 = round((1/odds1) / total * 100, 2)
-                fair_prob2 = round((1/odds2) / total * 100, 2)
+            probs = _fair_probabilities(odds1, odds2)
+            if probs is None:
+                logger.debug(
+                    "Skipping 2-way h2h for %s: odds %s/%s do not support a "
+                    "fair value", match_id, odds1, odds2,
+                )
+                return None
+            fair_prob1, fair_prob2, _ = probs
 
             return OddsRecord(
                 match_id=match_id, source="the-odds-api", sport=sport_key,
@@ -595,14 +634,14 @@ class OddsApiService:
         odds1 = statistics.median(home_odds)
         odds2 = statistics.median(away_odds)
 
-        try:
-            fp1, fp2 = proportional_probabilities(odds1, odds2)
-            fair_prob1 = round(fp1 * 100, 2)
-            fair_prob2 = round(fp2 * 100, 2)
-        except Exception:
-            total = 1/odds1 + 1/odds2
-            fair_prob1 = round((1/odds1) / total * 100, 2)
-            fair_prob2 = round((1/odds2) / total * 100, 2)
+        probs = _fair_probabilities(odds1, odds2)
+        if probs is None:
+            logger.debug(
+                "Skipping spreads for %s: odds %s/%s do not support a fair "
+                "value", match_id, odds1, odds2,
+            )
+            return None
+        fair_prob1, fair_prob2, _ = probs
 
         return OddsRecord(
             match_id=match_id, source="the-odds-api", sport=sport_key,
@@ -635,14 +674,14 @@ class OddsApiService:
         odds1 = statistics.median(over_odds)
         odds2 = statistics.median(under_odds)
 
-        try:
-            fp1, fp2 = proportional_probabilities(odds1, odds2)
-            fair_prob1 = round(fp1 * 100, 2)
-            fair_prob2 = round(fp2 * 100, 2)
-        except Exception:
-            total = 1/odds1 + 1/odds2
-            fair_prob1 = round((1/odds1) / total * 100, 2)
-            fair_prob2 = round((1/odds2) / total * 100, 2)
+        probs = _fair_probabilities(odds1, odds2)
+        if probs is None:
+            logger.debug(
+                "Skipping totals for %s: odds %s/%s do not support a fair "
+                "value", match_id, odds1, odds2,
+            )
+            return None
+        fair_prob1, fair_prob2, _ = probs
 
         return OddsRecord(
             match_id=match_id, source="the-odds-api", sport=sport_key,
@@ -674,14 +713,14 @@ class OddsApiService:
         odds1 = statistics.median(yes_odds)
         odds2 = statistics.median(no_odds)
 
-        try:
-            fp1, fp2 = proportional_probabilities(odds1, odds2)
-            fair_prob1 = round(fp1 * 100, 2)
-            fair_prob2 = round(fp2 * 100, 2)
-        except Exception:
-            total = 1/odds1 + 1/odds2
-            fair_prob1 = round((1/odds1) / total * 100, 2)
-            fair_prob2 = round((1/odds2) / total * 100, 2)
+        probs = _fair_probabilities(odds1, odds2)
+        if probs is None:
+            logger.debug(
+                "Skipping btts for %s: odds %s/%s do not support a fair "
+                "value", match_id, odds1, odds2,
+            )
+            return None
+        fair_prob1, fair_prob2, _ = probs
 
         return OddsRecord(
             match_id=match_id, source="the-odds-api", sport=sport_key,
