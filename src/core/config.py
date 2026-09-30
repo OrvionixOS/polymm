@@ -79,7 +79,11 @@ SPREAD_CONFIG = {
     **SHARED_CONFIG,
     "min_spread": 0.15,             # 15c minimum spread to enter
     "min_edge": 0.05,               # 5c min edge (cost-based, for outbid guard)
-    "min_profit": 0.10,             # 10c minimum expected profit (after fees)
+    # 10c minimum expected profit. NOTE: fees are not subtracted anywhere in
+    # the scanners — this is a GROSS threshold. On the international CLOB that
+    # is the same thing (no trading fees); on a venue that charges, it is not.
+    # src/core/edge.py does the net arithmetic; the scanners do not use it yet.
+    "min_profit": 0.10,
     "default_shares": 10,           # Shares per order (same as other bots)
     "signal_scan_interval": 10,     # 10 seconds between scans
     "monitor_interval": 5,          # 5 seconds between position checks
